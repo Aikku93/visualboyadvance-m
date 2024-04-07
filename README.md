@@ -7,7 +7,6 @@
   - [Building a Libretro core](#building-a-libretro-core)
   - [Visual Studio Support](#visual-studio-support)
   - [Visual Studio Code Support](#visual-studio-code-support)
-    - [Optional: clangd](#optional-clangd)
   - [Dependencies](#dependencies)
   - [Cross compiling for 32 bit on a 64 bit host](#cross-compiling-for-32-bit-on-a-64-bit-host)
   - [Cross Compiling for Win32](#cross-compiling-for-win32)
@@ -37,11 +36,11 @@ Chat](https://web.libera.chat/).
 
 Game Boy and Game Boy Advance Emulator
 
-The forums are [here](https://board.vba-m.com/).
+The forums are [here](https://board.visualboyadvance-m.org/).
 
 Windows and Mac builds are in the [releases tab](https://github.com/visualboyadvance-m/visualboyadvance-m/releases).
 
-Nightly builds for Windows and macOS are at [https://nightly.vba-m.com/](https://nightly.vba-m.com/).
+Nightly builds for Windows and macOS are at [https://nightly.visualboyadvance-m.org/](https://nightly.visualboyadvance-m.org/).
 
 **PLEASE TEST THE NIGHTLY OR MASTER WITH A FACTORY RESET BEFORE REPORTING
 ISSUES**
@@ -149,10 +148,10 @@ And the following development libraries:
 - [zlib](https://zlib.net/) (required)
 - [mesa](https://mesa3d.org/) (if using X11 or any OpenGL otherwise)
 - [ffmpeg](https://ffmpeg.org/) (optional, at least version `4.0.4`, for game recording)
-- [gettext](https://www.gnu.org/software/gettext/) and gettext-tools (optional, with ENABLE_NLS)
+- [gettext](https://www.gnu.org/software/gettext/) and gettext-tools
 - [SDL2](https://www.libsdl.org/) (required)
 - [SFML](https://www.sfml-dev.org/) (optional, for link)
-- [OpenAL](https://www.openal.org/) or [openal-soft](https://kcat.strangesoft.net/openal.html) (optional, a sound interface)
+- [OpenAL](https://www.openal.org/) or [openal-soft](https://kcat.strangesoft.net/openal.html) (required, a sound interface)
 - [wxWidgets](https://wxwidgets.org/) (required for GUI, 2.8 and non-stl builds are no longer supported)
 
 On Linux and similar, you also need the version of GTK your wxWidgets is linked
@@ -206,7 +205,6 @@ Here is the complete list:
 | ENABLE_SDL            | Build the SDL port                                                   | OFF                   |
 | ENABLE_WX             | Build the wxWidgets port                                             | ON                    |
 | ENABLE_DEBUGGER       | Enable the debugger                                                  | ON                    |
-| ENABLE_NLS            | Enable translations                                                  | ON                    |
 | ENABLE_ASM_CORE       | Enable x86 ASM CPU cores (**BUGGY AND DANGEROUS**)                   | OFF                   |
 | ENABLE_ASM            | Enable the following two ASM options                                 | ON for 32 bit builds  |
 | ENABLE_ASM_SCALERS    | Enable x86 ASM graphic filters                                       | ON for 32 bit builds  |
@@ -219,8 +217,6 @@ Here is the complete list:
 | ENABLE_GBA_LOGGING    | Enable extended GBA logging                                          | ON                    |
 | ENABLE_DIRECT3D       | Direct3D rendering for wxWidgets (Windows, **NOT IMPLEMENTED!!!**)   | ON                    |
 | ENABLE_XAUDIO2        | Enable xaudio2 sound output for wxWidgets (Windows only)             | ON                    |
-| ENABLE_OPENAL         | Enable OpenAL for the wxWidgets port                                 | AUTO                  |
-| ENABLE_SSP            | Enable gcc stack protector support (gcc only)                        | OFF                   |
 | ENABLE_ASAN           | Enable libasan sanitizers (by default address, only in debug mode)   | OFF                   |
 | UPSTREAM_RELEASE      | Do some release tasks, like codesigning, making zip and gpg sigs.    | OFF                   |
 | BUILD_TESTING         | Build the tests and enable ctest support.                            | ON                    |
@@ -228,9 +224,7 @@ Here is the complete list:
 | SDL2_STATIC           | Try to link static SDL2 libraries                                    | OFF                   |
 | SFML_STATIC_LIBRARIES | Try to link static SFML libraries                                    | OFF                   |
 | FFMPEG_STATIC         | Try to link static ffmpeg libraries                                  | OFF                   |
-| SSP_STATIC            | Try to link static gcc stack protector library (gcc only)            | OFF except Win32      |
 | OPENAL_STATIC         | Try to link static OpenAL libraries                                  | OFF                   |
-| SSP_STATIC            | Link gcc stack protecter libssp statically (gcc, with ENABLE_SSP)    | OFF                   |
 | TRANSLATIONS_ONLY     | Build only the translations.zip and nothing else                     | OFF                   |
 
 Note for distro packagers, we use the CMake module

@@ -1,16 +1,26 @@
-// Application
-#include "wxvbam.h"
-
-// Internals
-#include "../System.h"
-#include "../common/SoundDriver.h"
-#include "../gba/GBA.h"
-#include "../gba/Globals.h"
-#include "../gba/Sound.h"
+#if !defined(__WXMSW__)
+#error "This file should only be compiled on Windows"
+#endif
 
 // DirectSound8
 #define DIRECTSOUND_VERSION 0x0800
+#include <Windows.h>
+#include <mmeapi.h>
+
 #include <dsound.h>
+#include <uuids.h>
+
+#include <wx/arrstr.h>
+#include <wx/log.h>
+#include <wx/translation.h>
+
+// Internals
+#include "core/base/sound_driver.h"
+#include "core/base/system.h"
+#include "core/gba/gbaGlobals.h"
+#include "core/gba/gbaSound.h"
+#include "wx/config/option-proxy.h"
+#include "wx/wxvbam.h"
 
 extern bool soundBufferLow;
 
@@ -28,14 +38,15 @@ private:
 
 public:
     DirectSound();
-    virtual ~DirectSound();
+    ~DirectSound() override;
 
-    bool init(long sampleRate); // initialize the primary and secondary sound buffer
-    void setThrottle(unsigned short throttle_); // set game speed
-    void pause(); // pause the secondary sound buffer
-    void reset(); // stop and reset the secondary sound buffer
-    void resume(); // resume the secondary sound buffer
-    void write(uint16_t* finalWave, int length); // write the emulated sound to the secondary sound buffer
+    // SoundDriver implementation.
+    bool init(long sampleRate) override;
+    void pause() override;
+    void reset() override;
+    void resume() override;
+    void write(uint16_t *finalWave, int length) override;
+    void setThrottle(unsigned short throttle_) override;
 };
 
 DirectSound::DirectSound()
@@ -92,10 +103,11 @@ bool DirectSound::init(long sampleRate)
 
     GUID dev;
 
-    if (gopts.audio_dev.empty())
+    const wxString& audio_device = OPTION(kSoundAudioDevice);
+    if (audio_device.empty())
         dev = DSDEVID_DefaultPlayback;
     else
-        CLSIDFromString(gopts.audio_dev.wc_str(), &dev);
+        CLSIDFromString(audio_device.wc_str(), &dev);
 
     pDirectSound->Initialize(&dev);
 
@@ -114,7 +126,8 @@ bool DirectSound::init(long sampleRate)
     dsbdesc.dwSize = sizeof(DSBUFFERDESC);
     dsbdesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
 
-    if (!gopts.dsound_hw_accel) {
+    const bool hw_accel = OPTION(kSoundDSoundHWAccel);
+    if (!hw_accel) {
         dsbdesc.dwFlags |= DSBCAPS_LOCSOFTWARE;
     }
 
@@ -147,7 +160,7 @@ bool DirectSound::init(long sampleRate)
     dsbdesc.dwSize = sizeof(DSBUFFERDESC);
     dsbdesc.dwFlags = DSBCAPS_GETCURRENTPOSITION2 | DSBCAPS_CTRLPOSITIONNOTIFY | DSBCAPS_GLOBALFOCUS | DSBCAPS_CTRLFREQUENCY;
 
-    if (!gopts.dsound_hw_accel) {
+    if (!hw_accel) {
         dsbdesc.dwFlags |= DSBCAPS_LOCSOFTWARE;
     }
 
@@ -239,7 +252,7 @@ void DirectSound::resume()
     }
 }
 
-void DirectSound::write(uint16_t* finalWave, int length)
+void DirectSound::write(uint16_t* finalWave, int)
 {
     if (!pDirectSound)
         return;
@@ -323,16 +336,16 @@ void DirectSound::write(uint16_t* finalWave, int length)
     }
 }
 
-SoundDriver* newDirectSound()
+std::unique_ptr<SoundDriver> newDirectSound()
 {
-    return new DirectSound();
+    return std::make_unique<DirectSound>();
 }
 
 struct devnames {
     wxArrayString *names, *ids;
 };
 
-static BOOL CALLBACK DSEnumCB(LPGUID guid, LPCTSTR desc, LPCTSTR drvnam, LPVOID user)
+static BOOL CALLBACK DSEnumCB(LPGUID guid, LPCTSTR desc, LPCTSTR, LPVOID user)
 {
     devnames* dn = (devnames*)user;
     dn->names->push_back(desc);

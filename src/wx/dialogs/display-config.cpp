@@ -1,4 +1,4 @@
-#include "dialogs/display-config.h"
+#include "wx/dialogs/display-config.h"
 
 #include <wx/arrstr.h>
 #include <wx/choice.h>
@@ -13,16 +13,14 @@
 
 #include <wx/xrc/xmlres.h>
 
-#include "config/option-id.h"
-#include "config/option-proxy.h"
-#include "config/option.h"
-#include "dialogs/validated-child.h"
-#include "rpi.h"
-#include "wayland.h"
-#include "widgets/option-validator.h"
-#include "widgets/render-plugin.h"
-#include "widgets/wx/wxmisc.h"
-#include "wxvbam.h"
+#include "wx/config/option-id.h"
+#include "wx/config/option-proxy.h"
+#include "wx/config/option.h"
+#include "wx/dialogs/validated-child.h"
+#include "wx/rpi.h"
+#include "wx/widgets/option-validator.h"
+#include "wx/widgets/render-plugin.h"
+#include "wx/wxvbam.h"
 
 namespace dialogs {
 
@@ -100,7 +98,7 @@ private:
             return false;
         }
 
-        if (static_cast<size_t>(selection) > config::kNbFilters) {
+        if (static_cast<size_t>(selection) >= option()->GetEnumMax()) {
             return false;
         }
 
@@ -133,7 +131,7 @@ private:
             return false;
         }
 
-        if (static_cast<size_t>(selection) > config::kNbInterframes) {
+        if (static_cast<size_t>(selection) >= option()->GetEnumMax()) {
             return false;
         }
 
@@ -247,7 +245,7 @@ DisplayConfig::DisplayConfig(wxWindow* parent)
     // Speed
     GetValidatedChild(this, "FrameSkip")
         ->SetValidator(
-            widgets::OptionSpinCtrlValidator(config::OptionID::kPrefFrameSkip));
+            widgets::OptionIntValidator(config::OptionID::kPrefFrameSkip));
 
     // On-Screen Display
     GetValidatedChild(this, "SpeedIndicator")

@@ -1,5 +1,5 @@
-#ifndef WX_WXHEAD_H
-#define WX_WXHEAD_H
+#ifndef VBAM_WX_WXHEAD_H_
+#define VBAM_WX_WXHEAD_H_
 
 #ifdef __BORLANDC__
 #pragma hdrstop
@@ -57,7 +57,7 @@ using std::int32_t;
 // GetAccel is inefficent anyway (often I don't want to convert to wxAccEnt)
 // This is a working replacement for SetAccel, at least.
 
-#include "wxutil.h"
+#include "wx/wxutil.h"
 
 // wxrc helpers (for dynamic strings instead of constant)
 #define XRCID_D(str) wxXmlResource::GetXRCID(str)
@@ -83,4 +83,4 @@ static inline const wxCharBuffer UTF8(wxString str)
     return str.mb_str(wxConvUTF8);
 }
 
-#endif /* WX_WXHEAD_H */
+#endif // VBAM_WX_WXHEAD_H_

@@ -3,7 +3,7 @@
 //   load xrc file (guiinit.cpp does most of instantiation)
 //   create & display main frame
 
-#include "wxvbam.h"
+#include "wx/wxvbam.h"
 
 #ifdef __WXMSW__
 #include <windows.h>
@@ -30,22 +30,27 @@
 #include <wx/wxcrtvararg.h>
 #include <wx/zipstrm.h>
 
-#include "../gba/remote.h"
+#include "components/user_config/user_config.h"
+#include "core/gb/gbGlobals.h"
+#include "core/gba/gbaSound.h"
+
+#if defined(VBAM_ENABLE_DEBUGGER)
+#include "core/gba/gbaRemote.h"
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 
 // The built-in xrc file
-#include "builtin-xrc.h"
+#include "wx/builtin-xrc.h"
 
 // The built-in vba-over.ini
-#include "builtin-over.h"
-#include "config/game-control.h"
-#include "config/option-proxy.h"
-#include "config/option.h"
-#include "config/user-input.h"
-#include "strutils.h"
-#include "wayland.h"
-#include "widgets/group-check-box.h"
-#include "widgets/user-input-ctrl.h"
-#include "wxhead.h"
+#include "wx/builtin-over.h"
+#include "wx/config/game-control.h"
+#include "wx/config/option-proxy.h"
+#include "wx/config/option.h"
+#include "wx/config/user-input.h"
+#include "wx/strutils.h"
+#include "wx/wayland.h"
+#include "wx/widgets/group-check-box.h"
+#include "wx/widgets/user-input-ctrl.h"
 
 #ifdef __WXGTK__
 #include <gdk/gdk.h>
@@ -86,11 +91,11 @@ static const char kDotDir[] = "visualboyadvance-m";
 
 }  // namespace
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
 void(*dbgMain)() = remoteStubMain;
 void(*dbgSignal)(int, int) = remoteStubSignal;
 void(*dbgOutput)(const char *, uint32_t) = debuggerOutput;
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 
 #ifdef __WXMSW__
 
@@ -218,7 +223,7 @@ static void get_config_path(wxPathList& path, bool exists = true)
 #if defined(__WXGTK__)
     // XDG spec manual support
     // ${XDG_CONFIG_HOME:-$HOME/.config}/`appname`
-    wxString old_config = wxString(getenv("HOME"), wxConvLibc) + wxT(FILE_SEP) + wxT(".vbam");
+    wxString old_config = wxString(getenv("HOME"), wxConvLibc) + kFileSep + ".vbam";
     wxString new_config(get_xdg_user_config_home().c_str(), wxConvLibc);
     if (!wxDirExists(old_config) && wxIsWritable(new_config))
     {
@@ -308,7 +313,9 @@ wxString wxvbamApp::GetAbsolutePath(wxString path)
 
     if (fn.IsRelative()) {
         fn.MakeRelativeTo(GetConfigurationPath());
-        fn.Normalize();
+        fn.Normalize(wxPATH_NORM_ENV_VARS | wxPATH_NORM_DOTS | wxPATH_NORM_TILDE |
+                     wxPATH_NORM_CASE | wxPATH_NORM_ABSOLUTE | wxPATH_NORM_LONG |
+                     wxPATH_NORM_SHORTCUT);
         return fn.GetFullPath();
     }
 
@@ -871,7 +878,7 @@ void MainFrame::OnStatusBarChanged() {
 }
 
 BEGIN_EVENT_TABLE(MainFrame, wxFrame)
-#include "cmd-evtable.h"
+#include "wx/cmd-evtable.h"
 EVT_CONTEXT_MENU(MainFrame::OnMenu)
 // this is the main window focus?  Or EVT_SET_FOCUS/EVT_KILL_FOCUS?
 EVT_ACTIVATE(MainFrame::OnActivate)

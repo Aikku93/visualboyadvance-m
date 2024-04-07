@@ -3,11 +3,13 @@
 
 #include <array>
 #include <map>
-#include "nonstd/optional.hpp"
 #include <set>
+
+#include <optional.hpp>
+
 #include <wx/string.h>
 
-#include "config/user-input.h"
+#include "wx/config/user-input.h"
 
 namespace config {
 

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cassert>
 
 #include <wx/ffile.h>
 #include <wx/generic/prntdlgg.h>
@@ -6,10 +7,14 @@
 #include <wx/printdlg.h>
 #include <SDL.h>
 
-#include "../common/SoundSDL.h"
-#include "config/game-control.h"
-#include "config/option-proxy.h"
-#include "wxvbam.h"
+#include "core/base/image_util.h"
+#include "core/gb/gbGlobals.h"
+#include "core/gba/gbaGlobals.h"
+#include "core/gba/gbaSound.h"
+#include "wx/config/game-control.h"
+#include "wx/config/option-proxy.h"
+#include "wx/config/option.h"
+#include "wx/wxvbam.h"
 
 // These should probably be in vbamcore
 int systemVerbose;
@@ -81,7 +86,7 @@ void systemSendScreen()
 {
 #ifndef NO_FFMPEG
     GameArea* ga = wxGetApp().frame->GetPanel();
-    if (ga) ga->AddFrame(pix);
+    if (ga) ga->AddFrame(g_pix);
 #endif
 }
 
@@ -97,12 +102,12 @@ void systemDrawScreen()
 #ifndef NO_FFMPEG
 
     if (ga)
-        ga->AddFrame(pix);
+        ga->AddFrame(g_pix);
 
 #endif
 
     if (ga && ga->panel)
-        ga->panel->DrawArea(&pix);
+        ga->panel->DrawArea(&g_pix);
 }
 
 // record a game "movie"
@@ -275,7 +280,7 @@ void systemStartGamePlayback(const wxString& fname, MVFormatID format)
     if (fn.size() < 4 || !wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".vmv"), false))
         fn.append(wxT(".vmv"));
 
-    uint32_t version;
+    uint32_t version = 0;
 
     if (!game_file.Open(fn, wxT("rb")) || game_file.Read(&version, sizeof(version)) != sizeof(version) || wxUINT32_SWAP_ON_BE(version) < 1 || wxUINT32_SWAP_ON_BE(version) > 2) {
         wxLogError(_("Cannot open recording file %s"), fname.c_str());
@@ -1222,38 +1227,37 @@ void systemGbBorderOn()
 }
 
 class SoundDriver;
-SoundDriver* systemSoundInit()
+std::unique_ptr<SoundDriver> systemSoundInit()
 {
     soundShutdown();
 
-    switch (gopts.audio_api) {
-    case AUD_SDL:
-        return new SoundSDL();
-#ifndef NO_OAL
+    switch (OPTION(kSoundAudioAPI)) {
+        case config::AudioApi::kOpenAL:
+            return newOpenAL();
 
-    case AUD_OPENAL:
-        return newOpenAL();
-#endif
-#ifdef __WXMSW__
-
-    case AUD_DIRECTSOUND:
-        return newDirectSound();
-#ifndef NO_XAUDIO2
-
-    case AUD_XAUDIO2:
-        return newXAudio2_Output();
-#endif
-#ifndef NO_FAUDIO
-    case AUD_FAUDIO:
-        return newFAudio_Output();
-#endif
+#if defined(__WXMSW__)
+        case config::AudioApi::kDirectSound:
+            return newDirectSound();
 #endif
 
-    default:
-        gopts.audio_api = 0;
+#if defined(VBAM_ENABLE_XAUDIO2)
+        case config::AudioApi::kXAudio2:
+            return newXAudio2_Output();
+#endif
+
+#if defined(VBAM_ENABLE_FAUDIO)
+        case config::AudioApi::kFAudio:
+            return newFAudio_Output();
+#endif
+
+        case config::AudioApi::kLast:
+            // This should never happen.
+            assert(false);
+            return nullptr;
     }
 
-    return 0;
+    assert(false);
+    return nullptr;
 }
 
 void systemOnWriteDataToSoundBuffer(const uint16_t* finalWave, int length)
@@ -1273,7 +1277,7 @@ void systemOnSoundShutdown()
 {
 }
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
 
 extern int (*remoteSendFnc)(char*, int);
 extern int (*remoteRecvFnc)(char*, int);
@@ -1439,7 +1443,7 @@ bool debugWaitSocket()
     return debug_remote != NULL;
 }
 
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 
 void log(const char* defaultMsg, ...)
 {

@@ -10,8 +10,6 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/.git")
     message(FATAL_ERROR "releases can only be done from a git clone")
 endif()
 
-find_package(Git)
-
 if(NOT GIT_FOUND)
     message(FATAL_ERROR "git is required to make a release")
 endif()
@@ -186,10 +184,12 @@ Ignore the following cmake error.
     endwhile()
 
     # Convert to UNIX line endings on Windows, just copy the file otherwise.
-
     if(CMAKE_HOST_SYSTEM MATCHES Windows OR ((NOT DEFINED CMAKE_HOST_SYSTEM) AND WIN32))
+        if(NOT DEFINED POWERSHELL)
+            message(FATAL_ERROR "Powershell is required to convert line endings on Windows.")
+        endif()
         execute_process(
-            COMMAND powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command [=[
+            COMMAND ${POWERSHELL} -NoLogo -NoProfile -ExecutionPolicy Bypass -Command [=[
                 $text = [IO.File]::ReadAllText("CHANGELOG.md.work") -replace "`r`n", "`n"
                 [IO.File]::WriteAllText("CHANGELOG.md", $text)
             ]=]

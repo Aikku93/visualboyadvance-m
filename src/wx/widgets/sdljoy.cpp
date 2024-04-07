@@ -1,10 +1,11 @@
-#include "wx/sdljoy.h"
+#include "wx/widgets/sdljoy.h"
 
-#include <algorithm>
 #include <wx/timer.h>
 #include <SDL.h>
 
-#include "../wxvbam.h"
+#include "wx/config/option-proxy.h"
+#include "wx/config/option.h"
+#include "wx/wxvbam.h"
 
 namespace {
 
@@ -172,7 +173,7 @@ wxSDLJoyState::wxSDLJoyState(int sdl_index)
 
 wxSDLJoyState::wxSDLJoyState(wxJoystick joystick) : wx_joystick_(joystick) {
     int sdl_index = wx_joystick_.sdl_index_;
-    if (SDL_IsGameController(sdl_index)) {
+    if (OPTION(kSDLGameControllerMode) && SDL_IsGameController(sdl_index)) {
         game_controller_ = SDL_GameControllerOpen(sdl_index);
         if (game_controller_)
             sdl_joystick_ = SDL_GameControllerGetJoystick(game_controller_);

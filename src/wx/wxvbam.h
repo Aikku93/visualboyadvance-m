@@ -1,5 +1,5 @@
-#ifndef WX_WXVBAM_H
-#define WX_WXVBAM_H
+#ifndef VBAM_WX_WXVBAM_H_
+#define VBAM_WX_WXVBAM_H_
 
 #include <list>
 #include <stdexcept>
@@ -11,28 +11,25 @@
 #include <wx/propdlg.h>
 #include <wx/datetime.h>
 
-#include "config/option-observer.h"
-#include "widgets/dpi-support.h"
-#include "widgets/keep-on-top-styler.h"
-#include "wx/sdljoy.h"
-#include "wx/wxmisc.h"
-#include "wxhead.h"
+#include "core/base/system.h"
+#include "wx/config/option-observer.h"
+#include "wx/config/option.h"
+#include "wx/widgets/dpi-support.h"
+#include "wx/widgets/keep-on-top-styler.h"
+#include "wx/widgets/sdljoy.h"
+#include "wx/widgets/wxmisc.h"
+#include "wx/wxhead.h"
 
-#include "../gb/gb.h"
-#include "../gb/gbCheats.h"
-#include "../gb/gbGlobals.h"
-#include "../gb/gbSound.h"
-#include "../gba/Cheats.h"
-#include "../gba/GBALink.h"
-#include "../gba/Globals.h"
-#include "../gba/Sound.h"
-
-#ifndef NO_FFMPEG
-#include "../common/ffmpeg.h"
+#ifndef NO_LINK
+#include "core/gba/gbaLink.h"
 #endif
 
-#include "wxlogdebug.h"
-#include "wxutil.h"
+#ifndef NO_FFMPEG
+#include "components/av_recording/av_recording.h"
+#endif
+
+#include "wx/wxlogdebug.h"
+#include "wx/wxutil.h"
 
 template <typename T>
 void CheckPointer(T pointer)
@@ -265,7 +262,7 @@ public:
     void ResetMenuAccelerators();
 
     // 2.8 has no HasFocus(), and FindFocus() doesn't work right
-    bool HasFocus() const
+    bool HasFocus() const override
     {
         return focused;
     }
@@ -318,6 +315,8 @@ public:
     }
 
     void PollJoysticks() { joy.Poll(); }
+    
+    void PollAllJoysticks() { joy.PollAllJoysticks(); }
 
     // Poll joysticks with timer.
     void StartJoyPollTimer();
@@ -389,7 +388,7 @@ private:
     // Load a named wxDialog from the XRC file
     wxDialog* LoadXRCropertySheetDialog(const char* name);
 
-#include "cmdhandlers.h"
+#include "wx/cmdhandlers.h"
 };
 
 // a class for polling joystick keys
@@ -424,16 +423,6 @@ enum showspeed {
     SS_NONE,
     SS_PERCENT,
     SS_DETAILED
-};
-
-// This enum must be kept in sync with the one in vbam-options-static.cpp.
-// TODO: These 2 enums should be unified and a validator created for this enum.
-enum audioapi {
-    AUD_SDL,
-    AUD_OPENAL,
-    AUD_DIRECTSOUND,
-    AUD_XAUDIO2,
-    AUD_FAUDIO
 };
 
 // an unfortunate legacy default; should have a non-digit preceding %d
@@ -628,12 +617,20 @@ protected:
     DECLARE_EVENT_TABLE()
 
 private:
+    void OnAudioRateChanged();
+    void OnVolumeChanged(config::Option* option);
+
+    bool schedule_audio_restart_ = false;
+
     const config::OptionsObserver render_observer_;
     const config::OptionsObserver scale_observer_;
     const config::OptionsObserver gb_border_observer_;
     const config::OptionsObserver gb_palette_observer_;
     const config::OptionsObserver gb_declick_observer_;
     const config::OptionsObserver lcd_filters_observer_;
+    const config::OptionsObserver audio_rate_observer_;
+    const config::OptionsObserver audio_volume_observer_;
+    const config::OptionsObserver audio_observer_;
 };
 
 // wxString version of OSD message
@@ -658,7 +655,7 @@ cmditem new_cmditem(const wxString cmd = wxT(""), const wxString name = wxT(""),
 // for binary search
 extern bool cmditem_lt(const struct cmditem& cmd1, const struct cmditem& cmd2);
 
-#include "rpi.h"
+#include "wx/rpi.h"
 #include <wx/dynlib.h>
 
 class FilterThread;
@@ -712,33 +709,30 @@ private:
     DECLARE_EVENT_TABLE()
 };
 
-#include "opts.h"
+#include "wx/opts.h"
 
 // I should add this to SoundDriver, but wxArrayString is wx-specific
 // I suppose I could make subclass wxSoundDriver.  maybe later.
-
-#ifndef NO_OAL
 class SoundDriver;
-extern SoundDriver* newOpenAL();
+extern std::unique_ptr<SoundDriver> newOpenAL();
 extern bool GetOALDevices(wxArrayString& names, wxArrayString& ids);
-#endif
 
-#ifdef __WXMSW__
-extern SoundDriver* newDirectSound();
+#if defined(__WXMSW__)
+extern std::unique_ptr<SoundDriver> newDirectSound();
 extern bool GetDSDevices(wxArrayString& names, wxArrayString& ids);
+#endif  // defined(__WXMSW__)
 
-#ifndef NO_XAUDIO2
-extern SoundDriver* newXAudio2_Output();
+#if defined(VBAM_ENABLE_XAUDIO2)
+extern std::unique_ptr<SoundDriver> newXAudio2_Output();
 extern bool GetXA2Devices(wxArrayString& names, wxArrayString& ids);
-#endif
+#endif  // defined(VBAM_ENABLE_XAUDIO2)
 
-#ifndef NO_FAUDIO
-extern SoundDriver* newFAudio_Output();
+#if defined(VBAM_ENABLE_FAUDIO)
+extern std::unique_ptr<SoundDriver> newFAudio_Output();
 extern bool GetFADevices(wxArrayString& names, wxArrayString& ids);
-#endif
-#endif
+#endif  // defined(VBAM_ENABLE_FAUDIO)
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
 extern bool debugger;
 extern void (*dbgMain)();
 extern void (*dbgSignal)(int, int);
@@ -753,7 +747,7 @@ extern const wxString& debugGetSlavePty();
 extern bool debugWaitPty();
 extern bool debugStartListen(int port);
 extern bool debugWaitSocket();
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 
 // supported movie format for game recording
 enum MVFormatID {
@@ -811,6 +805,4 @@ extern int autofire, autohold;
 #define KEYM_MOTION_IN (1 << 19)
 #define KEYM_MOTION_OUT (1 << 20)
 
-#include "filters.h"
-
-#endif /* WX_WXVBAM_H */
+#endif // VBAM_WX_WXVBAM_H_

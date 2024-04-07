@@ -1,27 +1,29 @@
-#ifndef NO_XAUDIO2
+#if !defined(VBAM_ENABLE_XAUDIO2)
+#error "This file should only be compiled if XAudio2 is enabled"
+#endif
 
-// Application
-#include "wxvbam.h"
-#include <stdio.h>
+#include <cstdio>
 
-// Interface
-#include "../common/SoundDriver.h"
+#include <string>
+#include <vector>
 
-// XAudio2
+// MMDevice API
+#include <mmdeviceapi.h>
+
 #if _MSC_VER
 #include <xaudio2.legacy.h>
 #else
 #include <XAudio2.h>
 #endif 
 
-// MMDevice API
-#include <mmdeviceapi.h>
-#include <string>
-#include <vector>
+#include <wx/arrstr.h>
+#include <wx/log.h>
+#include <wx/translation.h>
 
-// Internals
-#include "../System.h" // for systemMessage()
-#include "../gba/Globals.h"
+#include "core/base/sound_driver.h"
+#include "core/base/system.h" // for systemMessage()
+#include "core/gba/gbaGlobals.h"
+#include "wx/config/option-proxy.h"
 
 int GetXA2Devices(IXAudio2* xa, wxArrayString* names, wxArrayString* ids,
     const wxString* match)
@@ -58,11 +60,7 @@ bool GetXA2Devices(wxArrayString& names, wxArrayString& ids)
 {
     HRESULT hr;
     IXAudio2* xa = NULL;
-    UINT32 flags = 0;
-#ifdef _DEBUG
-    flags = XAUDIO2_DEBUG_ENGINE;
-#endif
-    hr = XAudio2Create(&xa, flags);
+    hr = XAudio2Create(&xa, 0);
 
     if (hr != S_OK) {
         wxLogError(_("The XAudio2 interface failed to initialize!"));
@@ -76,10 +74,11 @@ bool GetXA2Devices(wxArrayString& names, wxArrayString& ids)
 
 static int XA2GetDev(IXAudio2* xa)
 {
-    if (gopts.audio_dev.empty())
+    const wxString& audio_device = OPTION(kSoundAudioDevice);
+    if (audio_device.empty())
         return 0;
     else {
-        int ret = GetXA2Devices(xa, NULL, NULL, &gopts.audio_dev);
+        int ret = GetXA2Devices(xa, NULL, NULL, &audio_device);
         return ret < 0 ? 0 : ret;
     }
 }
@@ -132,7 +131,7 @@ public:
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR pwstrDeviceId)
+    HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow, ERole, LPCWSTR pwstrDeviceId)
     {
         if (flow == eRender && last_device.compare(pwstrDeviceId) != 0) {
             last_device = pwstrDeviceId;
@@ -148,10 +147,10 @@ public:
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR pwstrDeviceId) { return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR pwstrDeviceId) { return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR pwstrDeviceId, DWORD dwNewState) { return S_OK; }
-    HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR pwstrDeviceId, const PROPERTYKEY key) { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR) { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR, DWORD) { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) { return S_OK; }
 
     void do_register(XAudio2_Output* p_instance)
     {
@@ -211,7 +210,7 @@ public:
     }
 
     STDMETHOD_(void, OnBufferEnd)
-    (void* pBufferContext)
+    (void*)
     {
         assert(hBufferEndEvent != NULL);
         SetEvent(hBufferEndEvent);
@@ -219,17 +218,17 @@ public:
 
     // dummies:
     STDMETHOD_(void, OnVoiceProcessingPassStart)
-    (UINT32 BytesRequired) {}
+    (UINT32) {}
     STDMETHOD_(void, OnVoiceProcessingPassEnd)
     () {}
     STDMETHOD_(void, OnStreamEnd)
     () {}
     STDMETHOD_(void, OnBufferStart)
-    (void* pBufferContext) {}
+    (void*) {}
     STDMETHOD_(void, OnLoopEnd)
-    (void* pBufferContext) {}
+    (void*) {}
     STDMETHOD_(void, OnVoiceError)
-    (void* pBufferContext, HRESULT Error){};
+    (void*, HRESULT){};
 };
 
 // Class Declaration
@@ -237,25 +236,20 @@ class XAudio2_Output
     : public SoundDriver {
 public:
     XAudio2_Output();
-    ~XAudio2_Output();
+    ~XAudio2_Output() override;
 
-    // Initialization
-    bool init(long sampleRate);
-
-    // Sound Data Feed
-    void write(uint16_t* finalWave, int length);
-
-    // Play Control
-    void pause();
-    void resume();
-    void reset();
-    void close();
     void device_change();
-
-    // Configuration Changes
-    void setThrottle(unsigned short throttle);
-
 private:
+    void close();
+
+    // SoundDriver implementation.
+    bool init(long sampleRate) override;
+    void pause() override;
+    void reset() override;
+    void resume() override;
+    void write(uint16_t *finalWave, int length) override;
+    void setThrottle(unsigned short throttle_) override;
+
     bool failed;
     bool initialized;
     bool playing;
@@ -282,7 +276,7 @@ XAudio2_Output::XAudio2_Output()
     initialized = false;
     playing = false;
     freq = 0;
-    bufferCount = gopts.audio_buffers;
+    bufferCount = OPTION(kSoundBuffers);
     buffers = NULL;
     currentBuffer = 0;
     device_changed = false;
@@ -342,11 +336,7 @@ bool XAudio2_Output::init(long sampleRate)
 
     HRESULT hr;
     // Initialize XAudio2
-    UINT32 flags = 0;
-    //#ifdef _DEBUG
-    //	flags = XAUDIO2_DEBUG_ENGINE;
-    //#endif
-    hr = XAudio2Create(&xaud, flags);
+    hr = XAudio2Create(&xaud, 0);
 
     if (hr != S_OK) {
         wxLogError(_("The XAudio2 interface failed to initialize!"));
@@ -394,7 +384,7 @@ bool XAudio2_Output::init(long sampleRate)
         return false;
     }
 
-    if (gopts.upmix) {
+    if (OPTION(kSoundUpmix)) {
         // set up stereo upmixing
         XAUDIO2_DEVICE_DETAILS dd;
         ZeroMemory(&dd, sizeof(dd));
@@ -512,7 +502,7 @@ bool XAudio2_Output::init(long sampleRate)
     return true;
 }
 
-void XAudio2_Output::write(uint16_t* finalWave, int length)
+void XAudio2_Output::write(uint16_t* finalWave, int)
 {
     if (!initialized || failed)
         return;
@@ -619,9 +609,7 @@ void xaudio2_device_changed(XAudio2_Output* instance)
     instance->device_change();
 }
 
-SoundDriver* newXAudio2_Output()
+std::unique_ptr<SoundDriver> newXAudio2_Output()
 {
-    return new XAudio2_Output();
+    return std::make_unique<XAudio2_Output>();
 }
-
-#endif // #ifndef NO_XAUDIO2

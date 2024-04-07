@@ -1,59 +1,70 @@
-// necessary to get portable strerror_r
-#undef _GNU_SOURCE
-#include <string.h>
-#define _GNU_SOURCE 1
+#include "sdl/ConfigManager.h"
 
-#include "ConfigManager.h"
-extern "C" {
-#include "../common/iniparser.h"
-}
+#include <cstring>
+#include <cerrno>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <sstream>
 
-#include <stdarg.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <cmath>
-#include <cerrno>
 
-#include "../common/Patch.h"
-#include "../gba/GBA.h"
-#include "../gba/agbprint.h"
-#include "../gba/Flash.h"
-#include "../gba/Cheats.h"
-#include "../gba/remote.h"
-#include "../gba/RTC.h"
-#include "../gba/Sound.h"
-#include "../gb/gb.h"
-#include "../gb/gbGlobals.h"
-#include "../gb/gbCheats.h"
-#include "../gb/gbSound.h"
-#include "../Util.h"
+#ifdef _WIN32
 
-#ifndef _WIN32
-#define GETCWD getcwd
-#else // _WIN32
 #include <direct.h>
-#define GETCWD _getcwd
+#include <io.h>
+
+#define getcwd _getcwd
 #define stat _stat
 #define mkdir(X,Y) (_mkdir(X))
+
 // from: https://www.linuxquestions.org/questions/programming-9/porting-to-win32-429334/
 #ifndef S_ISDIR
     #define S_ISDIR(mode)  (((mode) & _S_IFMT) == _S_IFDIR)
 #endif
+
 #endif // _WIN32
 
 #ifndef __GNUC__
+
 #define HAVE_DECL_GETOPT 0
 #define __STDC__ 1
 #include "getopt.h"
+
 #else // ! __GNUC__
+
 #define HAVE_DECL_GETOPT 1
 #include <getopt.h>
+
 #endif // ! __GNUC__
-#include <string>
-#include <sstream>
+
+#include "components/user_config/user_config.h"
+#include "core/base/file_util.h"
+#include "core/gb/gbGlobals.h"
+#include "core/gb/gbSound.h"
+#include "core/gba/gba.h"
+#include "core/gba/gbaFlash.h"
+#include "core/gba/gbaPrint.h"
+#include "core/gba/gbaRemote.h"
+#include "core/gba/gbaRtc.h"
+#include "core/gba/gbaSound.h"
+#include "sdl/filters.h"
+#include "sdl/iniparser.h"
+
+namespace {
+
+bool FileExists(const char *filename) {
+#ifdef _WIN32
+	return (_access(filename, 0) != -1);
+#else
+	struct stat buffer;
+	return (stat(filename, &buffer) == 0);
+#endif
+}
+
+}  // namespace
 
 enum named_opts
 {
@@ -132,11 +143,11 @@ const char* preparedCheatCodes[MAX_CHEATS];
 int	patchNum = 0;
 char *patchNames[PATCH_MAX_NUM] = { NULL }; // and so on
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
 void(*dbgMain)() = remoteStubMain;
 void(*dbgSignal)(int, int) = remoteStubSignal;
 void(*dbgOutput)(const char *, uint32_t) = debuggerOutput;
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 
 char* arg0 = NULL;
 
@@ -428,7 +439,7 @@ const char* FindConfigFile(const char *name)
 #define EXE_NAME "vbam"
 #endif // ! _WIN32
 
-	if (GETCWD(buffer, 2048)) {
+	if (getcwd(buffer, 2048)) {
 	}
 
 	if (FileExists(name))
@@ -443,7 +454,7 @@ const char* FindConfigFile(const char *name)
 		mkdir(fullDir, 0755);
 
 	if (fullDir) {
-		sprintf(path, "%s%c%s", fullDir, FILE_SEP, name);
+		sprintf(path, "%s%c%s", fullDir, kFileSep, name);
 		if (FileExists(path))
 		{
 			return path;
@@ -453,7 +464,7 @@ const char* FindConfigFile(const char *name)
 #ifdef _WIN32
 	char *home = getenv("USERPROFILE");
 	if (home != NULL) {
-		sprintf(path, "%s%c%s", home, FILE_SEP, name);
+		sprintf(path, "%s%c%s", home, kFileSep, name);
 		if (FileExists(path))
 		{
 			return path;
@@ -470,10 +481,10 @@ const char* FindConfigFile(const char *name)
 			char *tok = strtok(buffer, PATH_SEP);
 
 			while (tok) {
-				sprintf(env_path, "%s%c%s", tok, FILE_SEP, EXE_NAME);
+				sprintf(env_path, "%s%c%s", tok, kFileSep, EXE_NAME);
 				if (FileExists(env_path)) {
 					static char path2[2048];
-					sprintf(path2, "%s%c%s", tok, FILE_SEP, name);
+					sprintf(path2, "%s%c%s", tok, kFileSep, name);
 					if (FileExists(path2)) {
 						return path2;
 					}
@@ -485,10 +496,10 @@ const char* FindConfigFile(const char *name)
 	else {
 		// executable is relative to some directory
 		strcpy(buffer, arg0);
-		char *p = strrchr(buffer, FILE_SEP);
+		char *p = strrchr(buffer, kFileSep);
 		if (p) {
 			*p = 0;
-			sprintf(path, "%s%c%s", buffer, FILE_SEP, name);
+			sprintf(path, "%s%c%s", buffer, kFileSep, name);
 			if (FileExists(path))
 			{
 				return path;
@@ -496,13 +507,13 @@ const char* FindConfigFile(const char *name)
 		}
 	}
 #else // ! _WIN32
-	sprintf(path, "%s%c%s", PKGDATADIR, FILE_SEP, name);
+	sprintf(path, "%s%c%s", PKGDATADIR, kFileSep, name);
 	if (FileExists(path))
 	{
 		return path;
 	}
 
-	sprintf(path, "%s%c%s", SYSCONF_INSTALL_DIR, FILE_SEP, name);
+	sprintf(path, "%s%c%s", SYSCONF_INSTALL_DIR, kFileSep, name);
 	if (FileExists(path))
 	{
 		return path;
@@ -695,7 +706,7 @@ int ReadOpts(int argc, char ** argv)
 				patchNum++;
 			}
 			break;
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
 		case 'G':
 			dbgMain = remoteStubMain;
 			dbgSignal = remoteStubSignal;
@@ -724,7 +735,7 @@ int ReadOpts(int argc, char ** argv)
 				remoteSetProtocol(0);
 			}
 			break;
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 		case 'N':
 			coreOptions.parseDebug = false;
 			break;

@@ -61,6 +61,7 @@ enum class OptionID {
     kJoy,
     kJoyAutofireThrottle,
     kJoyDefault,
+    kSDLGameControllerMode,
 
     /// Keyboard
     kKeyboard,
@@ -129,7 +130,9 @@ enum class OptionID {
     kSoundGBEnableEffects,
     kSoundGBStereo,
     kSoundGBSurround,
-    kSoundQuality,
+    kSoundAudioRate,
+    kSoundDSoundHWAccel,
+    kSoundUpmix,
     kSoundVolume,
 
     // Do not add anything under here.

@@ -1,7 +1,10 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <vector>
+#include "components/filters_agb/filters_agb.h"
+#include "components/filters_interframe/interframe.h"
+#include "core/base/system.h"
+#include "wx/config/option-id.h"
 
 #ifdef __WXGTK__
     #include <X11/Xlib.h>
@@ -21,23 +24,32 @@
 #include <wx/menu.h>
 #include <SDL_joystick.h>
 
-#include "../common/Patch.h"
-#include "../common/version_cpp.h"
-#include "../gb/gbPrinter.h"
-#include "../gba/RTC.h"
-#include "../gba/agbprint.h"
-#include "../sdl/text.h"
 #include "background-input.h"
-#include "config/game-control.h"
-#include "config/option-proxy.h"
-#include "config/option.h"
-#include "config/user-input.h"
-#include "drawing.h"
-#include "filters.h"
-#include "wayland.h"
-#include "widgets/render-plugin.h"
-#include "wxutil.h"
-#include "wxvbam.h"
+#include "components/draw_text/draw_text.h"
+#include "components/filters/filters.h"
+#include "core/base/file_util.h"
+#include "core/base/patch.h"
+#include "core/base/version.h"
+#include "core/gb/gb.h"
+#include "core/gb/gbCheats.h"
+#include "core/gb/gbGlobals.h"
+#include "core/gb/gbPrinter.h"
+#include "core/gb/gbSound.h"
+#include "core/gba/gbaCheats.h"
+#include "core/gba/gbaFlash.h"
+#include "core/gba/gbaGlobals.h"
+#include "core/gba/gbaPrint.h"
+#include "core/gba/gbaRtc.h"
+#include "core/gba/gbaSound.h"
+#include "wx/config/game-control.h"
+#include "wx/config/option-proxy.h"
+#include "wx/config/option.h"
+#include "wx/config/user-input.h"
+#include "wx/drawing.h"
+#include "wx/wayland.h"
+#include "wx/widgets/render-plugin.h"
+#include "wx/wxutil.h"
+#include "wx/wxvbam.h"
 
 #ifdef __WXMSW__
 #include <windows.h>
@@ -84,6 +96,28 @@ double GetFilterScale() {
     return 1.0;
 }
 
+long GetSampleRate() {
+    switch (OPTION(kSoundAudioRate)) {
+        case config::AudioRate::k48kHz:
+            return 48000;
+            break;
+        case config::AudioRate::k44kHz:
+            return 44100;
+            break;
+        case config::AudioRate::k22kHz:
+            return 22050;
+            break;
+        case config::AudioRate::k11kHz:
+            return 11025;
+            break;
+        case config::AudioRate::kLast:
+            assert(false);
+            return 44100;
+    }
+    assert(false);
+    return 44100;
+}
+
 #define out_16 (systemColorDepth == 16)
 
 }  // namespace
@@ -108,28 +142,29 @@ GameArea::GameArea()
       paused(false),
       pointer_blanked(false),
       mouse_active_time(0),
-      render_observer_(
-          {config::OptionID::kDispBilinear, config::OptionID::kDispFilter,
-           config::OptionID::kDispRenderMethod, config::OptionID::kDispIFB,
-           config::OptionID::kDispStretch, config::OptionID::kPrefVsync},
-          std::bind(&GameArea::ResetPanel, this)),
-      scale_observer_(config::OptionID::kDispScale,
-                      std::bind(&GameArea::AdjustSize, this, true)),
-      gb_border_observer_(
-          config::OptionID::kPrefBorderOn,
-          std::bind(&GameArea::OnGBBorderChanged, this, std::placeholders::_1)),
-      gb_palette_observer_(
-          {config::OptionID::kGBPalette0, config::OptionID::kGBPalette1,
-           config::OptionID::kGBPalette2,
-           config::OptionID::kPrefGBPaletteOption},
-          std::bind(&gbResetPalette)),
-      gb_declick_observer_(config::OptionID::kSoundGBDeclicking,
-                           [&](config::Option* option) {
-                               gbSoundSetDeclicking(option->GetBool());
-                           }),
-      lcd_filters_observer_(
-          {config::OptionID::kGBLCDFilter, config::OptionID::kGBALCDFilter},
-          std::bind(&GameArea::UpdateLcdFilter, this)) {
+      render_observer_({config::OptionID::kDispBilinear, config::OptionID::kDispFilter,
+                        config::OptionID::kDispRenderMethod, config::OptionID::kDispIFB,
+                        config::OptionID::kDispStretch, config::OptionID::kPrefVsync},
+                       std::bind(&GameArea::ResetPanel, this)),
+      scale_observer_(config::OptionID::kDispScale, std::bind(&GameArea::AdjustSize, this, true)),
+      gb_border_observer_(config::OptionID::kPrefBorderOn,
+                          std::bind(&GameArea::OnGBBorderChanged, this, std::placeholders::_1)),
+      gb_palette_observer_({config::OptionID::kGBPalette0, config::OptionID::kGBPalette1,
+                            config::OptionID::kGBPalette2, config::OptionID::kPrefGBPaletteOption},
+                           std::bind(&gbResetPalette)),
+      gb_declick_observer_(
+          config::OptionID::kSoundGBDeclicking,
+          [&](config::Option* option) { gbSoundSetDeclicking(option->GetBool()); }),
+      lcd_filters_observer_({config::OptionID::kGBLCDFilter, config::OptionID::kGBALCDFilter},
+                            std::bind(&GameArea::UpdateLcdFilter, this)),
+      audio_rate_observer_(config::OptionID::kSoundAudioRate,
+                           std::bind(&GameArea::OnAudioRateChanged, this)),
+      audio_volume_observer_(config::OptionID::kSoundVolume,
+                             std::bind(&GameArea::OnVolumeChanged, this, std::placeholders::_1)),
+      audio_observer_({config::OptionID::kSoundAudioAPI, config::OptionID::kSoundAudioDevice,
+                       config::OptionID::kSoundBuffers, config::OptionID::kSoundDSoundHWAccel,
+                       config::OptionID::kSoundUpmix},
+                      [&](config::Option*) { schedule_audio_restart_ = true; }) {
     SetSizer(new wxBoxSizer(wxVERTICAL));
     // all renderers prefer 32-bit
     // well, "simple" prefers 24-bit, but that's not available for filters
@@ -227,15 +262,15 @@ void GameArea::LoadGame(const wxString& name)
         if (!pfn.IsFileReadable()) {
             pfn.SetExt(wxT("ups"));
 
-			if (!pfn.IsFileReadable()) {
-				pfn.SetExt(wxT("bps"));
+            if (!pfn.IsFileReadable()) {
+                pfn.SetExt(wxT("bps"));
 
-				if (!pfn.IsFileReadable()) {
-					pfn.SetExt(wxT("ppf"));
-					loadpatch = pfn.IsFileReadable();
-				}
-			}
-		}
+                if (!pfn.IsFileReadable()) {
+                    pfn.SetExt(wxT("ppf"));
+                    loadpatch = pfn.IsFileReadable();
+                }
+            }
+        }
     }
 
     if (t == IMAGE_GB) {
@@ -254,14 +289,13 @@ void GameArea::LoadGame(const wxString& name)
         // start sound; this must happen before CPU stuff
         gb_effects_config.enabled = OPTION(kSoundGBEnableEffects);
         gb_effects_config.surround = OPTION(kSoundGBSurround);
-        gb_effects_config.echo = (float)gopts.gb_echo / 100.0;
-        gb_effects_config.stereo = (float)gopts.gb_stereo / 100.0;
+        gb_effects_config.echo = (float)OPTION(kSoundGBEcho) / 100.0;
+        gb_effects_config.stereo = (float)OPTION(kSoundGBStereo) / 100.0;
         if (!soundInit()) {
             wxLogError(_("Could not initialize the sound driver!"));
         }
         soundSetEnable(gopts.sound_en);
-        gbSoundSetSampleRate(!gopts.sound_qual ? 48000 : 44100 / (1 << (gopts.sound_qual - 1)));
-        soundSetVolume((float)gopts.sound_vol / 100.0);
+        gbSoundSetSampleRate(GetSampleRate());
         // this **MUST** be called **AFTER** setting sample rate because the core calls soundInit()
         soundSetThrottle(coreOptions.throttle);
         gbGetHardwareType();
@@ -312,20 +346,20 @@ void GameArea::LoadGame(const wxString& name)
             return;
         }
 
-        rom_crc32 = crc32(0L, rom, rom_size);
+        rom_crc32 = crc32(0L, g_rom, rom_size);
 
         if (loadpatch) {
             // don't use real rom size or it might try to resize rom[]
             // instead, use known size of rom[]
             int size = 0x2000000 < rom_size ? 0x2000000 : rom_size;
-            applyPatch(UTF8(pfn.GetFullPath()), &rom, &size);
+            applyPatch(UTF8(pfn.GetFullPath()), &g_rom, &size);
             // that means we no longer really know rom_size either <sigh>
 
             gbaUpdateRomSize(size);
         }
 
         wxFileConfig* cfg = wxGetApp().overrides;
-        wxString id = wxString((const char*)&rom[0xac], wxConvLibc, 4);
+        wxString id = wxString((const char*)&g_rom[0xac], wxConvLibc, 4);
 
         if (cfg->HasGroup(id)) {
             cfg->SetPath(id);
@@ -345,7 +379,7 @@ void GameArea::LoadGame(const wxString& name)
                 ovSaveType = 0;
 
             if (ovSaveType == 0)
-                utilGBAFindSave(rom_size);
+                flashDetectSaveType(rom_size);
             else
                 coreOptions.saveType = ovSaveType;
 
@@ -359,7 +393,7 @@ void GameArea::LoadGame(const wxString& name)
                 coreOptions.cpuSaveType = 0;
 
             if (coreOptions.cpuSaveType == 0)
-                utilGBAFindSave(rom_size);
+                flashDetectSaveType(rom_size);
             else
                 coreOptions.saveType = coreOptions.cpuSaveType;
 
@@ -372,11 +406,10 @@ void GameArea::LoadGame(const wxString& name)
             wxLogError(_("Could not initialize the sound driver!"));
         }
         soundSetEnable(gopts.sound_en);
-        soundSetSampleRate(!gopts.sound_qual ? 48000 : 44100 / (1 << (gopts.sound_qual - 1)));
-        soundSetVolume((float)gopts.sound_vol / 100.0);
+        soundSetSampleRate(GetSampleRate());
         // this **MUST** be called **AFTER** setting sample rate because the core calls soundInit()
         soundSetThrottle(coreOptions.throttle);
-        soundFiltering = (float)gopts.gba_sound_filter / 100.0f;
+        soundFiltering = (float)OPTION(kSoundGBAFiltering) / 100.0f;
 
         rtcEnableRumble(true);
 
@@ -405,6 +438,7 @@ void GameArea::LoadGame(const wxString& name)
     AdjustSize(false);
     emulating = true;
     was_paused = true;
+    schedule_audio_restart_ = false;
     MainFrame* mf = wxGetApp().frame;
     mf->StopJoyPollTimer();
     mf->SetJoystick();
@@ -528,11 +562,11 @@ void GameArea::LoadGame(const wxString& name)
     }
 #endif
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
     if (OPTION(kPrefGDBBreakOnLoad)) {
         mf->GDBBreak();
     }
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 }
 
 void GameArea::SetFrameTitle()
@@ -545,7 +579,7 @@ void GameArea::SetFrameTitle()
     }
 
     tit.append(wxT("VisualBoyAdvance-M "));
-    tit.append(vbam_version);
+    tit.append(kVbamVersion);
 
 #ifndef NO_LINK
     int playerId = GetLinkPlayerId();
@@ -624,11 +658,11 @@ void GameArea::UnloadGame(bool destruct)
     systemStopGameRecording();
     systemStopGamePlayback();
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
     debugger = false;
     remoteCleanUp();
     mf->cmd_enable |= CMDEN_NGDB_ANY;
-#endif
+#endif  // VBAM_ENABLE_DEBUGGER
 
     if (loaded == IMAGE_GB) {
         gbCleanUp();
@@ -1085,7 +1119,7 @@ void GameArea::OnIdle(wxIdleEvent& event)
         wxGetApp().pending_load = wxEmptyString;
         LoadGame(pl);
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
         if (OPTION(kPrefGDBBreakOnLoad)) {
             mf->GDBBreak();
         }
@@ -1094,7 +1128,7 @@ void GameArea::OnIdle(wxIdleEvent& event)
             wxLogError(_("Not a valid Game Boy Advance cartridge"));
             UnloadGame();
         }
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
     }
 
     // stupid wx doesn't resize to screen size
@@ -1112,6 +1146,14 @@ void GameArea::OnIdle(wxIdleEvent& event)
 
     if (!emusys)
         return;
+
+    if (schedule_audio_restart_) {
+        soundShutdown();
+        if (!soundInit()) {
+            wxLogError(_("Could not initialize the sound driver!"));
+        }
+        schedule_audio_restart_ = false;
+    }
 
     if (!panel) {
         switch (OPTION(kDispRenderMethod)) {
@@ -1216,7 +1258,7 @@ void GameArea::OnIdle(wxIdleEvent& event)
         HideMenuBar();
         event.RequestMore();
 
-#ifndef NO_DEBUGGER
+#if defined(VBAM_ENABLE_DEBUGGER)
         if (debugger) {
             was_paused = true;
             dbgMain();
@@ -1229,7 +1271,7 @@ void GameArea::OnIdle(wxIdleEvent& event)
 
             return;
         }
-#endif
+#endif  // defined(VBAM_ENABLE_DEBUGGER)
 
         emusys->emuMain(emusys->emuCount);
 #ifndef NO_LINK
@@ -1900,14 +1942,14 @@ void DrawingPanelBase::DrawArea(uint8_t** data)
 
     // draw OSD text old-style (directly into output buffer), if needed
     // new style flickers too much, so we'll stick to this for now
-    if (wxGetApp().frame->IsFullScreen() || !OPTION(kGenStatusBar)) {
+    if (wxGetApp().frame->IsFullScreen() || !OPTION(kPrefDisableStatus)) {
         GameArea* panel = wxGetApp().frame->GetPanel();
 
         if (panel->osdstat.size())
             drawText(todraw + outstride * (systemColorDepth != 24), outstride,
                 10, 20, UTF8(panel->osdstat), OPTION(kPrefShowSpeedTransparent));
 
-        if (!OPTION(kPrefDisableStatus) && !panel->osdtext.empty()) {
+        if (!panel->osdtext.empty()) {
             if (systemGetClock() - panel->osdtime < OSD_TIME) {
                 wxString message = panel->osdtext;
                 int linelen = std::ceil(width * scale - 20) / 8;
@@ -2671,11 +2713,11 @@ void GameArea::OnGBBorderChanged(config::Option* option) {
 
 void GameArea::UpdateLcdFilter() {
     if (loaded == IMAGE_GBA)
-        utilUpdateSystemColorMaps(OPTION(kGBALCDFilter));
+        gbafilter_update_colors(OPTION(kGBALCDFilter));
     else if (loaded == IMAGE_GB)
-        utilUpdateSystemColorMaps(OPTION(kGBLCDFilter));
+        gbafilter_update_colors(OPTION(kGBLCDFilter));
     else
-        utilUpdateSystemColorMaps(false);
+        gbafilter_update_colors(false);
 }
 
 void GameArea::SuspendScreenSaver() {
@@ -2700,4 +2742,29 @@ void GameArea::UnsuspendScreenSaver() {
         xscreensaver_suspended = false;
     }
 #endif // HAVE_XSS
+}
+
+void GameArea::OnAudioRateChanged() {
+    if (loaded == IMAGE_UNKNOWN) {
+        return;
+    }
+
+    switch (game_type()) {
+        case IMAGE_UNKNOWN:
+            break;
+
+        case IMAGE_GB:
+            gbSoundSetSampleRate(GetSampleRate());
+            break;
+
+        case IMAGE_GBA:
+            soundSetSampleRate(GetSampleRate());
+            break;
+    }
+}
+
+void GameArea::OnVolumeChanged(config::Option* option) {
+    const int volume = option->GetInt();
+    soundSetVolume((float)volume / 100.0);
+    systemScreenMessage(wxString::Format(_("Volume: %d %%"), volume));
 }

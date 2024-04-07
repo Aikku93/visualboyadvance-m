@@ -1,8 +1,5 @@
-#ifndef STRUTILS_H
-#define STRUTILS_H
-
-#define __STDC_LIMIT_MACROS
-#define __STDC_CONSTANT_MACROS
+#ifndef VBAM_WX_STRUTILS_H_
+#define VBAM_WX_STRUTILS_H_
 
 #include <wx/string.h>
 #include <wx/arrstr.h>
@@ -19,4 +16,4 @@ wxArrayString split_with_sep(const wxString& text, const wxString& sep);
 
 } // namespace strutils
 
-#endif
+#endif  // VBAM_WX_STRUTILS_H_
